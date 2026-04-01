@@ -1,6 +1,6 @@
 // src/App.jsx  ── 모바일 퍼스트 반응형 설비 수리 의뢰 시스템
 import { useState, useEffect, useRef } from 'react'
-import { FACILITIES, SYMPTOMS, ROLES, INITIAL_USERS, loadRequests, saveRequests } from './data.js'
+import { FACILITIES, SYMPTOMS, ROLES, CURRENT_USER, loadRequests, saveRequests, loadUsers, saveUsers } from './data.js'
 
 /* ─────────────────────────────────────────
    GLOBAL CSS
@@ -381,6 +381,56 @@ function DetailPanel({ req, role, onClose, onStatusChange, onAI, isMobile }) {
   )
 }
 
+
+/* ──────────────────────────────────────────
+   ADD USER MODAL (관리자 전용)
+────────────────────────────────────────── */
+function AddUserModal({ onClose, onAdd }) {
+  const [name, setName] = useState('')
+  const [dept, setDept] = useState('')
+  const [role, setRole] = useState('조/반장')
+  const inputStyle = { width:'100%', background:'#122035', border:'1px solid #1a2e48', borderRadius:8, padding:'10px 12px', color:'#e2e8f0', fontSize:13, fontFamily:"'Noto Sans KR',sans-serif", outline:'none', marginTop:0 }
+  const submit = () => {
+    if (!name.trim()) return alert('이름을 입력해주세요')
+    if (!dept.trim()) return alert('부서를 입력해주세요')
+    onAdd({ id:'USR-'+Date.now(), name:name.trim(), dept:dept.trim(), role, notif:true, active:true })
+    onClose()
+  }
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', backdropFilter:'blur(6px)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ background:'#0d1829', border:'1px solid #1a2e48', borderRadius:18, width:420, animation:'popUp .2s ease', boxShadow:'0 30px 70px rgba(0,0,0,.6)' }}>
+        <div style={{ padding:'18px 22px', borderBottom:'1px solid #1a2e48', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ fontWeight:800, fontSize:15 }}>👤 사용자 추가</div>
+          <button onClick={onClose} style={{ background:'#122035', border:'1px solid #1a2e48', color:'#94a3b8', width:30, height:30, borderRadius:7, cursor:'pointer' }}>✕</button>
+        </div>
+        <div style={{ padding:22, display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:6 }}>이름</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:6 }}>부서</label>
+            <input value={dept} onChange={e=>setDept(e.target.value)} placeholder="생산기술" style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:6 }}>역할</label>
+            <select value={role} onChange={e=>setRole(e.target.value)} style={{ ...inputStyle, appearance:'none' }}>
+              <option>관리자</option>
+              <option>설비관리자</option>
+              <option>조/반장</option>
+              <option>작업자</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ padding:'14px 22px', borderTop:'1px solid #1a2e48', display:'flex', gap:8, justifyContent:'flex-end' }}>
+          <button onClick={onClose} style={{ padding:'9px 16px', borderRadius:8, border:'1px solid #1a2e48', background:'#122035', color:'#94a3b8', fontSize:13, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif" }}>취소</button>
+          <button onClick={submit} style={{ padding:'9px 18px', borderRadius:8, border:'none', background:'#f97316', color:'#fff', fontSize:13, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:700 }}>추가</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ──────────────────────────────────────────
    MAIN APP
 ────────────────────────────────────────── */
@@ -390,7 +440,7 @@ export default function App() {
   const [roleIdx, setRoleIdx] = useState(0)
   const currentRole = ROLES[roleIdx]
   const [requests, setRequests] = useState(()=>loadRequests())
-  const [users, setUsers] = useState(INITIAL_USERS)
+  const [users, setUsers] = useState(()=>loadUsers())
   const [toasts, setToasts] = useState([])
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifs, setNotifs] = useState([
@@ -399,11 +449,13 @@ export default function App() {
     { id:3, title:'📋 담당자 배정', body:'사출 18호기 → 이상훈 배정', time:'1시간 전', unread:false },
   ])
   const [showModal, setShowModal] = useState(false)
+  const [showAddUser, setShowAddUser] = useState(false)
   const [detailReq, setDetailReq] = useState(null)
   const [aiReq, setAiReq] = useState(null)
   const [filterSt, setFilterSt] = useState('all')
 
   useEffect(()=>{ saveRequests(requests) },[requests])
+  useEffect(()=>{ saveUsers(users) },[users])
 
   const toast = (type,title,sub) => {
     const id=Date.now(); setToasts(p=>[...p,{id,type,title,sub}])
@@ -418,6 +470,15 @@ export default function App() {
     setRequests(p=>p.map(r=>r.id===id?{...r,status}:r))
     const r=requests.find(x=>x.id===id)
     if(r){ setDetailReq({...r,status}); toast('success','상태 변경',`${r.fac} → ${status}`) }
+  }
+
+  const isAdmin = CURRENT_USER.role === '관리자'
+
+  const addUser = (u) => { setUsers(p=>[...p,u]); toast('success','사용자 추가',`${u.name}(${u.role}) 추가됨`) }
+  const deleteUser = (id) => {
+    const u = users.find(x=>x.id===id)
+    if(u?.name===CURRENT_USER.name){ toast('error','삭제 불가','본인 계정은 삭제할 수 없습니다'); return }
+    if(window.confirm(`${u?.name}을(를) 삭제하시겠습니까?`)){ setUsers(p=>p.filter(x=>x.id!==id)); toast('success','삭제 완료',`${u?.name} 삭제됨`) }
   }
 
   const filtered    = filterSt==='all'?requests:requests.filter(r=>r.status===filterSt)
@@ -567,13 +628,19 @@ export default function App() {
 
             {page==='admin'&&(
               <div style={{ padding:16, animation:'fadeUp .3s ease' }}>
-                <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>사용자 목록</div>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                  <div style={{ fontSize:13, fontWeight:700 }}>사용자 목록</div>
+                  {isAdmin&&<button onClick={()=>setShowAddUser(true)} style={{ padding:'7px 13px', borderRadius:8, border:'none', background:C.accent, color:'#fff', fontSize:12, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:700 }}>+ 추가</button>}
+                </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   {users.map((u,i)=>(
                     <div key={u.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:14 }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                        <div><div style={{ fontSize:14, fontWeight:700 }}>{u.name}</div><div style={{ fontSize:11, color:C.text3, marginTop:2 }}>{u.dept}</div></div>
-                        <RoleBadge r={u.role} />
+                        <div><div style={{ fontSize:14, fontWeight:700 }}>{u.name} {u.name===CURRENT_USER.name&&<span style={{ fontSize:10, color:C.accent, fontWeight:700 }}>나</span>}</div><div style={{ fontSize:11, color:C.text3, marginTop:2 }}>{u.dept}</div></div>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          <RoleBadge r={u.role} />
+                          {isAdmin&&u.name!==CURRENT_USER.name&&<button onClick={()=>deleteUser(u.id)} style={{ background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', width:26, height:26, borderRadius:6, cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>}
+                        </div>
                       </div>
                       <div style={{ display:'flex', gap:16 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, color:C.text2 }}><Toggle on={u.notif} onChange={()=>setUsers(p=>p.map((x,j)=>j===i?{...x,notif:!x.notif}:x))} />앱 알림</div>
@@ -604,6 +671,7 @@ export default function App() {
 
         {notifOpen&&<NotifPanel />}
         {showModal&&<RequestModal onClose={()=>setShowModal(false)} onSubmit={submitReq} currentUser={currentRole} isMobile={true} />}
+        {showAddUser&&<AddUserModal onClose={()=>setShowAddUser(false)} onAdd={addUser} />}
         {detailReq&&<DetailPanel req={detailReq} role={currentRole.key} onClose={()=>setDetailReq(null)} onStatusChange={changeStatus} onAI={setAiReq} isMobile={true} />}
         {aiReq&&<AIModal req={aiReq} onClose={()=>setAiReq(null)} isMobile={true} />}
         <Toasts list={toasts} />
@@ -640,14 +708,11 @@ export default function App() {
             ))}
           </nav>
           <div style={{ margin:8 }}>
-            <div onClick={()=>setRoleIdx(i=>(i+1)%ROLES.length)}
-              style={{ background:C.surface2, border:`1px solid ${C.border}`, borderRadius:10, padding:'12px 14px', cursor:'pointer', transition:'border-color .15s' }}
-              onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
-              onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-              <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:'0.08em', marginBottom:4 }}>{currentRole.label}</div>
-              <div style={{ fontSize:13, fontWeight:600 }}>{currentRole.name}</div>
-              <div style={{ fontSize:11, color:C.text3, marginTop:2 }}>{currentRole.dept}</div>
-              <div style={{ fontSize:10, color:C.text4, marginTop:6 }}>클릭하여 역할 전환 →</div>
+            <div style={{ background:C.surface2, border:`1px solid ${C.border}`, borderRadius:10, padding:'12px 14px' }}>
+              <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:'0.08em', marginBottom:4 }}>ADMIN</div>
+              <div style={{ fontSize:13, fontWeight:600 }}>{CURRENT_USER.name}</div>
+              <div style={{ fontSize:11, color:C.text3, marginTop:2 }}>{CURRENT_USER.dept}</div>
+              <div style={{ fontSize:10, color:C.text4, marginTop:6 }}>관리자 계정으로 로그인 중</div>
             </div>
           </div>
         </div>
@@ -769,20 +834,20 @@ export default function App() {
               <div style={{ padding:24, animation:'fadeUp .3s ease' }}>
                 <div style={card}>
                   <div style={{ padding:'14px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                    <div style={{ fontSize:14, fontWeight:700 }}>사용자 목록</div>
-                    <button onClick={()=>toast('warn','준비 중','사용자 추가 기능 준비 중')} style={{ padding:'7px 14px', borderRadius:8, border:`1px solid ${C.border}`, background:C.surface2, color:C.text2, fontSize:12, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif" }}>+ 추가</button>
+                    <div style={{ fontSize:14, fontWeight:700 }}>사용자 목록 <span style={{ fontSize:12, color:C.text3, fontWeight:400 }}>({users.length}명)</span></div>
+                    {isAdmin&&<button onClick={()=>setShowAddUser(true)} style={{ padding:'7px 16px', borderRadius:8, border:'none', background:C.accent, color:'#fff', fontSize:12, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:700 }}>+ 사용자 추가</button>}
                   </div>
                   <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                    <thead><tr>{['ID','이름','부서','역할','앱 알림','활성'].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                    <thead><tr>{['이름','부서','역할','앱 알림','활성',isAdmin?'삭제':''].filter(Boolean).map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                     <tbody>
                       {users.map((u,i)=>(
                         <tr key={u.id}>
-                          <td style={{...TD,...mono,fontSize:11,color:C.text3}}>{u.id}</td>
-                          <td style={{...TD,fontWeight:600}}>{u.name}</td>
+                          <td style={{...TD,fontWeight:600}}>{u.name} {u.name===CURRENT_USER.name&&<span style={{ fontSize:10, background:'rgba(249,115,22,.15)', color:C.accent, padding:'2px 6px', borderRadius:10, fontWeight:700, marginLeft:4 }}>나</span>}</td>
                           <td style={{...TD,fontSize:12,color:C.text3}}>{u.dept}</td>
                           <td style={TD}><RoleBadge r={u.role} /></td>
                           <td style={TD}><Toggle on={u.notif} onChange={()=>setUsers(p=>p.map((x,j)=>j===i?{...x,notif:!x.notif}:x))} /></td>
                           <td style={TD}><Toggle on={u.active} onChange={()=>setUsers(p=>p.map((x,j)=>j===i?{...x,active:!x.active}:x))} /></td>
+                          {isAdmin&&<td style={TD}>{u.name!==CURRENT_USER.name&&<button onClick={()=>deleteUser(u.id)} style={{ padding:'5px 12px', borderRadius:7, border:'1px solid rgba(239,68,68,.3)', background:'rgba(239,68,68,.08)', color:'#f87171', fontSize:11, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:600 }}>삭제</button>}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -796,6 +861,7 @@ export default function App() {
 
       {notifOpen&&<NotifPanel />}
       {showModal&&<RequestModal onClose={()=>setShowModal(false)} onSubmit={submitReq} currentUser={currentRole} isMobile={false} />}
+      {showAddUser&&<AddUserModal onClose={()=>setShowAddUser(false)} onAdd={addUser} />}
       {detailReq&&<DetailPanel req={detailReq} role={currentRole.key} onClose={()=>setDetailReq(null)} onStatusChange={changeStatus} onAI={setAiReq} isMobile={false} />}
       {aiReq&&<AIModal req={aiReq} onClose={()=>setAiReq(null)} isMobile={false} />}
       <Toasts list={toasts} />
