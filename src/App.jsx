@@ -1,6 +1,6 @@
 // src/App.jsx  ── 모바일 퍼스트 반응형 설비 수리 의뢰 시스템
 import { useState, useEffect, useRef } from 'react'
-import { FACILITIES, SYMPTOMS, ROLES, CURRENT_USER, loadRequests, saveRequests, loadUsers, saveUsers } from './data.js'
+import { FACILITY_GROUPS, SYMPTOMS, ROLES, CURRENT_USER, loadRequests, saveRequests, loadUsers, saveUsers, loadFacilities, saveFacilities } from './data.js'
 
 /* ─────────────────────────────────────────
    GLOBAL CSS
@@ -165,7 +165,7 @@ function AIModal({ req, onClose, isMobile }) {
 }
 
 /* ── 수리 의뢰 모달 ── */
-function RequestModal({ onClose, onSubmit, currentUser, isMobile }) {
+function RequestModal({ onClose, onSubmit, currentUser, isMobile, facilities: facList = [] }) {
   const [step, setStep] = useState(1)
   const [facId, setFacId] = useState('')
   const [selSyms, setSelSyms] = useState([])
@@ -175,7 +175,7 @@ function RequestModal({ onClose, onSubmit, currentUser, isMobile }) {
   const canNext = () => step===1?!!facId:step===2?selSyms.length>0:true
   const submit = () => {
     if(!facId||!selSyms.length) return
-    const fac = FACILITIES.find(f=>f.id===facId)
+    const fac = facList.find(f=>f.id===facId)
     onSubmit({ id:uid(), facId, fac:fac.name, symptoms:selSyms, urgency, requester:currentUser.name, time:nowTime(), status:'대기', memo })
     onClose()
   }
@@ -202,11 +202,11 @@ function RequestModal({ onClose, onSubmit, currentUser, isMobile }) {
           {step===1&&(
             <div>
               <div style={{ fontSize:13, fontWeight:700, color:C.text2, marginBottom:12 }}>어느 설비에서 문제가 발생했나요?</div>
-              {['A라인','B라인','C라인'].map(line=>(
-                <div key={line} style={{ marginBottom:16 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:C.text3, marginBottom:8 }}>{line}</div>
+              {FACILITY_GROUPS.map(group=>(
+                <div key={group} style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.text3, marginBottom:8 }}>{group}</div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                    {FACILITIES.filter(f=>f.line===line).map(f=>{
+                    {facList.filter(f=>f.group===group).map(f=>{
                       const sel=facId===f.id
                       return <div key={f.id} onClick={()=>setFacId(f.id)} style={{ padding:'12px', borderRadius:10, border:`2px solid ${sel?C.accent:C.border}`, background:sel?C.accentDim:C.surface2, cursor:'pointer', transition:'all .15s' }}>
                         <div style={{ fontSize:13, fontWeight:700, color:sel?C.accent:C.text, marginBottom:4 }}>{f.name}</div>
@@ -255,7 +255,7 @@ function RequestModal({ onClose, onSubmit, currentUser, isMobile }) {
               <textarea value={memo} onChange={e=>setMemo(e.target.value)} placeholder="구체적인 증상, 발생 시간 등..." style={{ ...inputBase, resize:'none', height:120, lineHeight:1.65 }} />
               <div style={{ marginTop:16, background:C.surface2, border:`1px solid ${C.border}`, borderRadius:12, padding:14 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:C.text3, marginBottom:10 }}>의뢰 요약</div>
-                {[['설비',FACILITIES.find(f=>f.id===facId)?.name],['증상',selSyms.join(', ')],['긴급도',urgency]].map(([k,v])=>(
+                {[['설비',facList.find(f=>f.id===facId)?.name],['증상',selSyms.join(', ')],['긴급도',urgency]].map(([k,v])=>(
                   <div key={k} style={{ display:'flex', justifyContent:'space-between', fontSize:12, padding:'5px 0', borderBottom:`1px solid ${C.border}` }}>
                     <span style={{ color:C.text3 }}>{k}</span><span style={{ fontWeight:600, textAlign:'right', maxWidth:'65%' }}>{v}</span>
                   </div>
@@ -289,9 +289,9 @@ function RequestModal({ onClose, onSubmit, currentUser, isMobile }) {
             <label style={{ fontSize:12, fontWeight:700, color:C.text2, display:'block', marginBottom:8 }}>설비 선택</label>
             <select value={facId} onChange={e=>setFacId(e.target.value)} style={{ width:'100%', background:C.surface2, border:`1px solid ${C.border}`, borderRadius:10, padding:'12px 14px', color:facId?C.text:C.text3, fontSize:13, fontFamily:"'Noto Sans KR',sans-serif", outline:'none' }}>
               <option value=''>설비를 선택하세요</option>
-              {['A라인','B라인','C라인'].map(line=>(
-                <optgroup key={line} label={`── ${line}`}>
-                  {FACILITIES.filter(f=>f.line===line).map(f=><option key={f.id} value={f.id}>{f.name}　({f.status})</option>)}
+              {FACILITY_GROUPS.map(group=>(
+                <optgroup key={group} label={`── ${group}`}>
+                  {facList.filter(f=>f.group===group).map(f=><option key={f.id} value={f.id}>{f.name}　({f.status})</option>)}
                 </optgroup>
               ))}
             </select>
@@ -431,6 +431,60 @@ function AddUserModal({ onClose, onAdd }) {
   )
 }
 
+
+/* ──────────────────────────────────────────
+   ADD FACILITY MODAL (관리자 전용)
+────────────────────────────────────────── */
+function AddFacModal({ onClose, onAdd }) {
+  const [name, setName] = useState('')
+  const [group, setGroup] = useState('사출')
+  const [status, setStatus] = useState('정상')
+  const inputStyle = { width:'100%', background:'#122035', border:'1px solid #1a2e48', borderRadius:8, padding:'10px 12px', color:'#e2e8f0', fontSize:13, fontFamily:"'Noto Sans KR',sans-serif", outline:'none', appearance:'none' }
+  const today = new Date().toISOString().slice(0,10)
+  const submit = () => {
+    if (!name.trim()) return alert('설비명을 입력해주세요')
+    onAdd({ id:'FAC-'+Date.now(), name:name.trim(), group, status, lastCheck:today })
+    onClose()
+  }
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', backdropFilter:'blur(6px)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ background:'#0d1829', border:'1px solid #1a2e48', borderRadius:18, width:420, animation:'popUp .2s ease', boxShadow:'0 30px 70px rgba(0,0,0,.6)' }}>
+        <div style={{ padding:'18px 22px', borderBottom:'1px solid #1a2e48', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ fontWeight:800, fontSize:15 }}>⚙ 설비 추가</div>
+          <button onClick={onClose} style={{ background:'#122035', border:'1px solid #1a2e48', color:'#94a3b8', width:30, height:30, borderRadius:7, cursor:'pointer' }}>✕</button>
+        </div>
+        <div style={{ padding:22, display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:6 }}>설비명</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="예: 사출 25호기" style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:6 }}>구분</label>
+            <select value={group} onChange={e=>setGroup(e.target.value)} style={inputStyle}>
+              <option>사출</option>
+              <option>프레스</option>
+              <option>TOM실</option>
+              <option>기타</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize:12, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:6 }}>현재 상태</label>
+            <select value={status} onChange={e=>setStatus(e.target.value)} style={inputStyle}>
+              <option>정상</option>
+              <option>점검중</option>
+              <option>수리중</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ padding:'14px 22px', borderTop:'1px solid #1a2e48', display:'flex', gap:8, justifyContent:'flex-end' }}>
+          <button onClick={onClose} style={{ padding:'9px 16px', borderRadius:8, border:'1px solid #1a2e48', background:'#122035', color:'#94a3b8', fontSize:13, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif" }}>취소</button>
+          <button onClick={submit} style={{ padding:'9px 18px', borderRadius:8, border:'none', background:'#f97316', color:'#fff', fontSize:13, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:700 }}>추가</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ──────────────────────────────────────────
    MAIN APP
 ────────────────────────────────────────── */
@@ -441,6 +495,8 @@ export default function App() {
   const currentRole = ROLES[roleIdx]
   const [requests, setRequests] = useState(()=>loadRequests())
   const [users, setUsers] = useState(()=>loadUsers())
+  const [facilities, setFacilities] = useState(()=>loadFacilities())
+  const [showAddFac, setShowAddFac] = useState(false)
   const [toasts, setToasts] = useState([])
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifs, setNotifs] = useState([
@@ -456,6 +512,7 @@ export default function App() {
 
   useEffect(()=>{ saveRequests(requests) },[requests])
   useEffect(()=>{ saveUsers(users) },[users])
+  useEffect(()=>{ saveFacilities(facilities) },[facilities])
 
   const toast = (type,title,sub) => {
     const id=Date.now(); setToasts(p=>[...p,{id,type,title,sub}])
@@ -479,6 +536,12 @@ export default function App() {
     const u = users.find(x=>x.id===id)
     if(u?.name===CURRENT_USER.name){ toast('error','삭제 불가','본인 계정은 삭제할 수 없습니다'); return }
     if(window.confirm(`${u?.name}을(를) 삭제하시겠습니까?`)){ setUsers(p=>p.filter(x=>x.id!==id)); toast('success','삭제 완료',`${u?.name} 삭제됨`) }
+  }
+
+  const addFacility = (f) => { setFacilities(p=>[...p,f]); toast('success','설비 추가',`${f.name} 추가됨`) }
+  const deleteFacility = (id) => {
+    const f = facilities.find(x=>x.id===id)
+    if(window.confirm(`${f?.name}을(를) 삭제하시겠습니까?`)){ setFacilities(p=>p.filter(x=>x.id!==id)); toast('success','삭제 완료',`${f?.name} 삭제됨`) }
   }
 
   const filtered    = filterSt==='all'?requests:requests.filter(r=>r.status===filterSt)
@@ -545,7 +608,7 @@ export default function App() {
             {page==='dashboard'&&(
               <div style={{ padding:16, animation:'fadeUp .3s ease' }}>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
-                  {[{label:'긴급 대기',val:urgentCnt,col:'#f87171',bar:'#ef4444'},{label:'처리 중',val:progressCnt,col:'#facc15',bar:'#eab308'},{label:'금일 완료',val:doneCnt,col:'#4ade80',bar:'#22c55e'},{label:'전체 설비',val:24,col:'#60a5fa',bar:'#3b82f6'}].map(s=>(
+                  {[{label:'긴급 대기',val:urgentCnt,col:'#f87171',bar:'#ef4444'},{label:'처리 중',val:progressCnt,col:'#facc15',bar:'#eab308'},{label:'금일 완료',val:doneCnt,col:'#4ade80',bar:'#22c55e'},{label:'전체 설비',val:facilities.length,col:'#60a5fa',bar:'#3b82f6'}].map(s=>(
                     <div key={s.label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:14, position:'relative', overflow:'hidden' }}>
                       <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:s.bar }} />
                       <div style={{ fontSize:10, color:C.text3, fontWeight:600, marginBottom:8 }}>{s.label}</div>
@@ -602,27 +665,41 @@ export default function App() {
 
             {page==='facilities'&&(
               <div style={{ padding:16, animation:'fadeUp .3s ease' }}>
-                {['A라인','B라인','C라인'].map(line=>(
-                  <div key={line} style={{ marginBottom:20 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                      <div style={{ width:3, height:14, background:C.accent, borderRadius:2 }} /><div style={{ fontSize:12, fontWeight:700, color:C.text2 }}>{line}</div>
-                    </div>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                      {FACILITIES.filter(f=>f.line===line).map(f=>{
-                        const repCnt=requests.filter(r=>r.facId===f.id&&r.status!=='완료').length
-                        return (
-                          <div key={f.id} style={{ background:C.surface, border:`1px solid ${f.status==='수리중'?'rgba(239,68,68,.3)':f.status==='점검중'?'rgba(234,179,8,.3)':C.border}`, borderRadius:10, padding:'12px' }}>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
-                              <div style={{ fontSize:12, fontWeight:800 }}>{f.name}</div>
-                              {repCnt>0&&<span style={{ background:C.redDim, color:'#f87171', fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:8 }}>{repCnt}건</span>}
-                            </div>
-                            <FacBadge s={f.status} />
-                          </div>
-                        )
-                      })}
-                    </div>
+                {isAdmin&&(
+                  <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
+                    <button onClick={()=>setShowAddFac(true)} style={{ padding:'7px 13px', borderRadius:8, border:'none', background:C.accent, color:'#fff', fontSize:12, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:700 }}>+ 설비 추가</button>
                   </div>
-                ))}
+                )}
+                {FACILITY_GROUPS.map(group=>{
+                  const gFacs = facilities.filter(f=>f.group===group)
+                  if(!gFacs.length) return null
+                  return (
+                    <div key={group} style={{ marginBottom:24 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                        <div style={{ width:3, height:14, background:C.accent, borderRadius:2 }} />
+                        <div style={{ fontSize:12, fontWeight:700, color:C.text2 }}>{group}</div>
+                        <span style={{ fontSize:11, color:C.text3 }}>({gFacs.length})</span>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                        {gFacs.map(f=>{
+                          const repCnt=requests.filter(r=>r.facId===f.id&&r.status!=='완료').length
+                          return (
+                            <div key={f.id} style={{ background:C.surface, border:`1px solid ${f.status==='수리중'?'rgba(239,68,68,.3)':f.status==='점검중'?'rgba(234,179,8,.3)':C.border}`, borderRadius:10, padding:'12px', position:'relative' }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+                                <div style={{ fontSize:12, fontWeight:800, flex:1, marginRight:4 }}>{f.name}</div>
+                                {repCnt>0&&<span style={{ background:C.redDim, color:'#f87171', fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:8, flexShrink:0 }}>{repCnt}건</span>}
+                              </div>
+                              <FacBadge s={f.status} />
+                              {isAdmin&&(
+                                <button onClick={()=>deleteFacility(f.id)} style={{ position:'absolute', top:6, right:6, width:20, height:20, borderRadius:5, border:'1px solid rgba(239,68,68,.3)', background:'rgba(239,68,68,.1)', color:'#f87171', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>✕</button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
 
@@ -670,8 +747,9 @@ export default function App() {
         </div>
 
         {notifOpen&&<NotifPanel />}
-        {showModal&&<RequestModal onClose={()=>setShowModal(false)} onSubmit={submitReq} currentUser={currentRole} isMobile={true} />}
+        {showModal&&<RequestModal onClose={()=>setShowModal(false)} onSubmit={submitReq} currentUser={currentRole} isMobile={true} facilities={facilities} />}
         {showAddUser&&<AddUserModal onClose={()=>setShowAddUser(false)} onAdd={addUser} />}
+        {showAddFac&&<AddFacModal onClose={()=>setShowAddFac(false)} onAdd={addFacility} />}
         {detailReq&&<DetailPanel req={detailReq} role={currentRole.key} onClose={()=>setDetailReq(null)} onStatusChange={changeStatus} onAI={setAiReq} isMobile={true} />}
         {aiReq&&<AIModal req={aiReq} onClose={()=>setAiReq(null)} isMobile={true} />}
         <Toasts list={toasts} />
@@ -733,7 +811,7 @@ export default function App() {
             {page==='dashboard'&&(
               <div style={{ padding:24, animation:'fadeUp .3s ease' }}>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
-                  {[{label:'긴급 처리 대기',val:urgentCnt,col:'#f87171',bar:'#ef4444'},{label:'처리 중',val:progressCnt,col:'#facc15',bar:'#eab308'},{label:'금일 완료',val:doneCnt,col:'#4ade80',bar:'#22c55e'},{label:'전체 설비',val:24,col:'#60a5fa',bar:'#3b82f6'}].map(s=>(
+                  {[{label:'긴급 처리 대기',val:urgentCnt,col:'#f87171',bar:'#ef4444'},{label:'처리 중',val:progressCnt,col:'#facc15',bar:'#eab308'},{label:'금일 완료',val:doneCnt,col:'#4ade80',bar:'#22c55e'},{label:'전체 설비',val:facilities.length,col:'#60a5fa',bar:'#3b82f6'}].map(s=>(
                     <div key={s.label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'16px 20px', position:'relative', overflow:'hidden' }}>
                       <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:s.bar }} />
                       <div style={{ fontSize:11, color:C.text3, fontWeight:600, marginBottom:10 }}>{s.label}</div>
@@ -806,27 +884,45 @@ export default function App() {
 
             {page==='facilities'&&(
               <div style={{ padding:24, animation:'fadeUp .3s ease' }}>
-                {['A라인','B라인','C라인'].map(line=>(
-                  <div key={line} style={{ marginBottom:28 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}><div style={{ width:3, height:16, background:C.accent, borderRadius:2 }} /><div style={{ fontSize:12, fontWeight:700, color:C.text2, letterSpacing:'0.06em', textTransform:'uppercase' }}>{line}</div></div>
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
-                      {FACILITIES.filter(f=>f.line===line).map(f=>{
-                        const repCnt=requests.filter(r=>r.facId===f.id&&r.status!=='완료').length
-                        return (
-                          <div key={f.id} style={{ background:C.surface, border:`1px solid ${f.status==='수리중'?'rgba(239,68,68,.3)':f.status==='점검중'?'rgba(234,179,8,.3)':C.border}`, borderRadius:12, padding:'14px 16px', transition:'transform .15s', cursor:'default' }}
-                            onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'} onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
-                              <div style={{ fontSize:13, fontWeight:800 }}>{f.name}</div>
-                              {repCnt>0&&<span style={{ background:C.redDim, color:'#f87171', fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:8 }}>{repCnt}건</span>}
-                            </div>
-                            <div style={{ fontSize:10, color:C.text4, marginBottom:10, ...mono }}>{f.model}</div>
-                            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}><FacBadge s={f.status} /><span style={{ fontSize:10, color:C.text4, ...mono }}>{f.lastCheck}</span></div>
-                          </div>
-                        )
-                      })}
-                    </div>
+                {isAdmin&&(
+                  <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:20 }}>
+                    <button onClick={()=>setShowAddFac(true)} style={{ padding:'9px 18px', borderRadius:8, border:'none', background:C.accent, color:'#fff', fontSize:13, cursor:'pointer', fontFamily:"'Noto Sans KR',sans-serif", fontWeight:700 }}>+ 설비 추가</button>
                   </div>
-                ))}
+                )}
+                {FACILITY_GROUPS.map(group=>{
+                  const gFacs = facilities.filter(f=>f.group===group)
+                  if(!gFacs.length) return null
+                  return (
+                    <div key={group} style={{ marginBottom:32 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+                        <div style={{ width:3, height:18, background:C.accent, borderRadius:2 }} />
+                        <div style={{ fontSize:13, fontWeight:700, color:C.text2, letterSpacing:'0.06em', textTransform:'uppercase' }}>{group}</div>
+                        <span style={{ fontSize:12, color:C.text3 }}>({gFacs.length}대)</span>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
+                        {gFacs.map(f=>{
+                          const repCnt=requests.filter(r=>r.facId===f.id&&r.status!=='완료').length
+                          return (
+                            <div key={f.id} style={{ background:C.surface, border:`1px solid ${f.status==='수리중'?'rgba(239,68,68,.3)':f.status==='점검중'?'rgba(234,179,8,.3)':C.border}`, borderRadius:12, padding:'14px 16px', transition:'transform .15s', position:'relative' }}
+                              onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'} onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                                <div style={{ fontSize:13, fontWeight:800, flex:1, marginRight:6 }}>{f.name}</div>
+                                {repCnt>0&&<span style={{ background:C.redDim, color:'#f87171', fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:8, flexShrink:0 }}>{repCnt}건</span>}
+                              </div>
+                              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                                <FacBadge s={f.status} />
+                                <span style={{ fontSize:10, color:C.text4, fontFamily:"'JetBrains Mono',monospace" }}>{f.lastCheck}</span>
+                              </div>
+                              {isAdmin&&(
+                                <button onClick={()=>deleteFacility(f.id)} style={{ position:'absolute', top:8, right:8, width:22, height:22, borderRadius:6, border:'1px solid rgba(239,68,68,.3)', background:'rgba(239,68,68,.08)', color:'#f87171', cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
 
@@ -860,8 +956,9 @@ export default function App() {
       </div>
 
       {notifOpen&&<NotifPanel />}
-      {showModal&&<RequestModal onClose={()=>setShowModal(false)} onSubmit={submitReq} currentUser={currentRole} isMobile={false} />}
+      {showModal&&<RequestModal onClose={()=>setShowModal(false)} onSubmit={submitReq} currentUser={currentRole} isMobile={false} facilities={facilities} />}
       {showAddUser&&<AddUserModal onClose={()=>setShowAddUser(false)} onAdd={addUser} />}
+      {showAddFac&&<AddFacModal onClose={()=>setShowAddFac(false)} onAdd={addFacility} />}
       {detailReq&&<DetailPanel req={detailReq} role={currentRole.key} onClose={()=>setDetailReq(null)} onStatusChange={changeStatus} onAI={setAiReq} isMobile={false} />}
       {aiReq&&<AIModal req={aiReq} onClose={()=>setAiReq(null)} isMobile={false} />}
       <Toasts list={toasts} />

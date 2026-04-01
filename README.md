@@ -51,7 +51,7 @@ git init
 git add .
 git commit -m "첫 배포"
 git branch -M main
-git remote add origin https://github.com/[username]/facility-app.git
+git remote add origin https://github.com/Lavides/facility-app.git
 git push -u origin main
 ```
 
